@@ -7,18 +7,23 @@ const std = @import("std");
 const flip_vertically_on_write = false;
 
 // Expects a writer which implements std.io.OutStream.
-pub fn writeToStream(writer: var, w: usize, h: usize, comp: usize, data: []const u8, quality: i32) !void {
+pub fn writeToStream(writer: anytype, w: usize, h: usize, comp: usize, data: []const u8, quality: i32) !void {
     try writeToStreamCore(writer, w, h, comp, data, quality);
 }
 
 pub fn writeToFile(filename: []const u8, w: usize, h: usize, comp: usize, data: []const u8, quality: i32) !void {
-    var file = try std.fs.File.openWrite(filename);
+    const file = try std.fs.cwd().createFile(filename, .{});
     defer file.close();
 
-    var file_stream = file.outStream();
-    var buffered_writer = std.io.BufferedOutStream(std.fs.File.WriteError).init(&file_stream.stream);
-    try writeToStream(&buffered_writer.stream, w, h, comp, data, quality);
-    try buffered_writer.flush();
+    // var file_stream = file.outStream();
+    // var buffered_writer = std.io.BufferedOutStream(std.fs.File.WriteError).init(&file_stream.stream);
+    // try writeToStream(&buffered_writer.stream, w, h, comp, data, quality);
+    // try buffered_writer.flush();
+
+    var bw = std.io.bufferedWriter(file.writer());
+    const writer = bw.writer();
+    try writeToStream(writer, w, h, comp, data, quality);
+    try bw.flush();
 }
 
 const zig_zag_table = [_]u8{
@@ -27,7 +32,7 @@ const zig_zag_table = [_]u8{
     59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
 };
 
-fn writeBits(writer: var, bitBufP: *u32, bitCntP: *u32, bs: [2]u16) !void {
+fn writeBits(writer: anytype, bitBufP: *u32, bitCntP: *u32, bs: [2]u16) !void {
     var bitBuf = bitBufP.*;
     var bitCnt = bitCntP.*;
 
@@ -38,10 +43,10 @@ fn writeBits(writer: var, bitBufP: *u32, bitCntP: *u32, bs: [2]u16) !void {
         bitBuf <<= 8;
         bitCnt -= 8;
     }) {
-        const c = @truncate(u8, bitBuf >> 16);
-        try writer.write(([_]u8{c})[0..]);
+        const c = @as(u8, @truncate(bitBuf >> 16));
+        _ = try writer.write(([_]u8{c})[0..]);
         if (c == 255) {
-            try writer.write(([_]u8{0})[0..]);
+            _ = try writer.write(([_]u8{0})[0..]);
         }
     }
 
@@ -60,13 +65,13 @@ fn computeDCT(
     d7p: *f32,
 ) void {
     var d0 = d0p.*;
-    var d1 = d1p.*;
+    const d1 = d1p.*;
     var d2 = d2p.*;
-    var d3 = d3p.*;
+    const d3 = d3p.*;
     var d4 = d4p.*;
-    var d5 = d5p.*;
+    const d5 = d5p.*;
     var d6 = d6p.*;
-    var d7 = d7p.*;
+    const d7 = d7p.*;
 
     const tmp0 = d0 + d7;
     const tmp7 = d0 - d7;
@@ -79,7 +84,7 @@ fn computeDCT(
 
     // Even part
     var tmp10 = tmp0 + tmp3; // phase 2
-    var tmp13 = tmp0 - tmp3;
+    const tmp13 = tmp0 - tmp3;
     var tmp11 = tmp1 + tmp2;
     var tmp12 = tmp1 - tmp2;
 
@@ -129,10 +134,10 @@ fn calcBits(_val: i32, bits: []u16) void {
         bits[1] += 1;
     }
 
-    bits[0] = @truncate(u16, @bitCast(u32, val) & (std.math.shl(c_uint, 1, bits[1]) - 1));
+    bits[0] = @truncate(@as(u32, @bitCast(val)) & (std.math.shl(c_uint, 1, bits[1]) - 1));
 }
 
-fn processDU(writer: var, bitBuf: *u32, bitCnt: *u32, CDU: []f32, fdtbl: []f32, DC: i32, HTDC: [256][2]u16, HTAC: [256][2]u16) !i32 {
+fn processDU(writer: anytype, bitBuf: *u32, bitCnt: *u32, CDU: []f32, fdtbl: []f32, DC: i32, HTDC: [256][2]u16, HTAC: [256][2]u16) !i32 {
     std.debug.assert(CDU.len == 64);
     std.debug.assert(fdtbl.len == 64);
 
@@ -163,7 +168,7 @@ fn processDU(writer: var, bitBuf: *u32, bitCnt: *u32, CDU: []f32, fdtbl: []f32, 
             const v = CDU[i] * fdtbl[i];
             // DU[zig_zag_table[i]] = (int)(v < 0 ? ceilf(v - 0.5f) : floorf(v + 0.5f));
             // ceilf() and floorf() are C99, not C89, but I /think/ they're not needed here anyway?
-            DU[zig_zag_table[i]] = @floatToInt(i32, if (v < 0) v - 0.5 else v + 0.5);
+            DU[zig_zag_table[i]] = @intFromFloat(if (v < 0) v - 0.5 else v + 0.5);
         }
     }
 
@@ -401,7 +406,7 @@ const aasf = [_]f32{
     1.0 * 2.828427125, 0.785694958 * 2.828427125, 0.541196100 * 2.828427125, 0.275899379 * 2.828427125,
 };
 
-fn writeToStreamCore(writer: var, width: usize, height: usize, comp: usize, data: []const u8, _quality: i32) !void {
+fn writeToStreamCore(writer: anytype, width: usize, height: usize, comp: usize, data: []const u8, _quality: i32) !void {
     if (width == 0 or height == 0 or comp > 4 or comp < 1) {
         return error.InvalidArguments;
     }
@@ -419,9 +424,9 @@ fn writeToStreamCore(writer: var, width: usize, height: usize, comp: usize, data
         var i: usize = 0;
         while (i < 64) : (i += 1) {
             const yti = @divFloor(YQT[i] * quality + 50, 100);
-            YTable[zig_zag_table[i]] = @intCast(u8, if (yti < 1) 1 else (if (yti > 255) 255 else yti));
+            YTable[zig_zag_table[i]] = @intCast(if (yti < 1) 1 else (if (yti > 255) 255 else yti));
             const uvti = @divFloor(UVQT[i] * quality + 50, 100);
-            UVTable[zig_zag_table[i]] = @intCast(u8, if (uvti < 1) 1 else (if (uvti > 255) 255 else uvti));
+            UVTable[zig_zag_table[i]] = @intCast(if (uvti < 1) 1 else (if (uvti > 255) 255 else uvti));
         }
     }
 
@@ -434,8 +439,8 @@ fn writeToStreamCore(writer: var, width: usize, height: usize, comp: usize, data
                 col += 1;
                 k += 1;
             }) {
-                fdtbl_Y[k] = 1 / (@intToFloat(f32, YTable[zig_zag_table[k]]) * aasf[row] * aasf[col]);
-                fdtbl_UV[k] = 1 / (@intToFloat(f32, UVTable[zig_zag_table[k]]) * aasf[row] * aasf[col]);
+                fdtbl_Y[k] = 1 / (@as(f32, @floatFromInt(YTable[zig_zag_table[k]])) * aasf[row] * aasf[col]);
+                fdtbl_UV[k] = 1 / (@as(f32, @floatFromInt(UVTable[zig_zag_table[k]])) * aasf[row] * aasf[col]);
             }
         }
     }
@@ -445,28 +450,28 @@ fn writeToStreamCore(writer: var, width: usize, height: usize, comp: usize, data
         const head0 = [_]u8{ 0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 'J', 'F', 'I', 'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0xFF, 0xDB, 0, 0x84, 0 };
         const head2 = [_]u8{ 0xFF, 0xDA, 0, 0xC, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3F, 0 };
         const head1 = [_]u8{
-            0xFF, 0xC0, 0,    0x11, 8,    @truncate(u8, height >> 8), @truncate(u8, height), @truncate(u8, width >> 8), @truncate(u8, width),
-            3,    1,    0x11, 0,    2,    0x11,                       1,                     3,                         0x11,
+            0xFF, 0xC0, 0,    0x11, 8,    @truncate(height >> 8), @truncate(height), @truncate(width >> 8), @truncate(width),
+            3,    1,    0x11, 0,    2,    0x11,                   1,                 3,                     0x11,
             1,    0xFF, 0xC4, 0x01, 0xA2, 0,
         };
 
-        try writer.write(head0);
-        try writer.write(YTable);
-        try writer.write([_]u8{1});
-        try writer.write(UVTable);
-        try writer.write(head1);
-        try writer.write(std_dc_luminance_nrcodes[1..]);
-        try writer.write(std_dc_luminance_values);
-        try writer.write(([_]u8{0x10})[0..]); // HTYACinfo
-        try writer.write(std_ac_luminance_nrcodes[1..]);
-        try writer.write(std_ac_luminance_values);
-        try writer.write(([_]u8{1})[0..]); //HTUDCinfo
-        try writer.write(std_dc_chrominance_nrcodes[1..]);
-        try writer.write(std_dc_chrominance_values);
-        try writer.write(([_]u8{0x11})[0..]); // HTUACinfo
-        try writer.write(std_ac_chrominance_nrcodes[1..]);
-        try writer.write(std_ac_chrominance_values);
-        try writer.write(head2);
+        _ = try writer.write(&head0);
+        _ = try writer.write(&YTable);
+        _ = try writer.write(&[_]u8{1});
+        _ = try writer.write(&UVTable);
+        _ = try writer.write(&head1);
+        _ = try writer.write(std_dc_luminance_nrcodes[1..]);
+        _ = try writer.write(&std_dc_luminance_values);
+        _ = try writer.write(([_]u8{0x10})[0..]); // HTYACinfo
+        _ = try writer.write(std_ac_luminance_nrcodes[1..]);
+        _ = try writer.write(&std_ac_luminance_values);
+        _ = try writer.write(([_]u8{1})[0..]); //HTUDCinfo
+        _ = try writer.write(std_dc_chrominance_nrcodes[1..]);
+        _ = try writer.write(&std_dc_chrominance_values);
+        _ = try writer.write(([_]u8{0x11})[0..]); // HTUACinfo
+        _ = try writer.write(std_ac_chrominance_nrcodes[1..]);
+        _ = try writer.write(&std_ac_chrominance_values);
+        _ = try writer.write(&head2);
     }
 
     // Encode 8x8 macroblocks
@@ -481,8 +486,8 @@ fn writeToStreamCore(writer: var, width: usize, height: usize, comp: usize, data
         var bitCnt: u32 = 0;
 
         // comp == 2 is grey+alpha (alpha is ignored)
-        const ofsG = if (comp > 2) usize(1) else 0;
-        const ofsB = if (comp > 2) usize(2) else 0;
+        const ofsG: usize = if (comp > 2) 1 else 0;
+        const ofsB: usize = if (comp > 2) 2 else 0;
 
         var y: usize = 0;
         while (y < height) : (y += 8) {
@@ -509,9 +514,9 @@ fn writeToStreamCore(writer: var, width: usize, height: usize, comp: usize, data
                             p -= comp * (col + 1 - width);
                         }
 
-                        const r = @intToFloat(f32, data[p + 0]);
-                        const g = @intToFloat(f32, data[p + ofsG]);
-                        const b = @intToFloat(f32, data[p + ofsB]);
+                        const r = @as(f32, @floatFromInt(data[p + 0]));
+                        const g = @as(f32, @floatFromInt(data[p + ofsG]));
+                        const b = @as(f32, @floatFromInt(data[p + ofsB]));
                         YDU[pos] = 0.29900 * r + 0.58700 * g + 0.11400 * b - 128;
                         UDU[pos] = -0.16874 * r - 0.33126 * g + 0.50000 * b;
                         VDU[pos] = 0.50000 * r - 0.41869 * g - 0.08131 * b;
@@ -529,6 +534,6 @@ fn writeToStreamCore(writer: var, width: usize, height: usize, comp: usize, data
     }
 
     // EOI
-    try writer.write(([_]u8{0xFF})[0..]);
-    try writer.write(([_]u8{0xD9})[0..]);
+    _ = try writer.write(([_]u8{0xFF})[0..]);
+    _ = try writer.write(([_]u8{0xD9})[0..]);
 }
