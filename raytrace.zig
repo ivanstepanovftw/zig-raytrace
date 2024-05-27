@@ -149,7 +149,6 @@ fn sceneIntersect(origin: Vec3f, direction: Vec3f, spheres: []const Sphere, hit:
             hit.* = pt;
             normal.* = vec3(0, 1, 0);
 
-            // const diffuse = @as(i32, 0.5 * hit.x + 1000) + @as(i32, 0.5 * hit.z);
             const diffuse = @as(i32, @intFromFloat(0.5 * hit.x)) + 1000 + @as(i32, @intFromFloat(0.5 * hit.z));
             const diffuse_color = if (@mod(diffuse, 2) == 1) vec3(1, 1, 1) else vec3(1, 0.7, 0.3);
             material.diffuse_color = diffuse_color.mulScalar(0.3);
@@ -276,8 +275,8 @@ fn render(allocator: std.mem.Allocator, spheres: []const Sphere, lights: []const
     while (j < height) : (j += 1) {
         var i: usize = 0;
         while (i < width) : (i += 1) {
-            const x = (2 * (@as(f32, i) + 0.5) / width - 1) * std.math.tan(fov / 2.0) * width / height;
-            const y = -(2 * (@as(f32, j) + 0.5) / height - 1) * std.math.tan(fov / 2.0);
+            const x = (2 * (@as(f32, @floatFromInt(i)) + 0.5) / width - 1) * std.math.tan(fov / 2.0) * width / height;
+            const y = -(2 * (@as(f32, @floatFromInt(j)) + 0.5) / height - 1) * std.math.tan(fov / 2.0);
 
             const direction = vec3(x, y, -1).normalize();
             var c = castRay(vec3(0, 0, 0), direction, spheres, lights, 0);
@@ -287,13 +286,13 @@ fn render(allocator: std.mem.Allocator, spheres: []const Sphere, lights: []const
 
             const T = @typeInfo(Vec3f).Struct;
             inline for (T.fields, 0..) |field, k| {
-                const pixel = @as(u8, 255 * @max(0, @min(1, @field(c, field.name))));
-                pixmap.set(3 * (i + j * width) + k, pixel);
+                const pixel: u8 = @intFromFloat(255 * @max(0, @min(1, @field(c, field.name))));
+                pixmap.items[3 * (i + j * width) + k] = pixel;
             }
         }
     }
 
-    try jpeg.writeToFile(out_filename, width, height, 3, pixmap.toSliceConst(), out_quality);
+    try jpeg.writeToFile(out_filename, width, height, 3, pixmap.items, out_quality);
 }
 
 pub fn main() !void {

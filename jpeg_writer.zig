@@ -15,11 +15,6 @@ pub fn writeToFile(filename: []const u8, w: usize, h: usize, comp: usize, data: 
     const file = try std.fs.cwd().createFile(filename, .{});
     defer file.close();
 
-    // var file_stream = file.outStream();
-    // var buffered_writer = std.io.BufferedOutStream(std.fs.File.WriteError).init(&file_stream.stream);
-    // try writeToStream(&buffered_writer.stream, w, h, comp, data, quality);
-    // try buffered_writer.flush();
-
     var bw = std.io.bufferedWriter(file.writer());
     const writer = bw.writer();
     try writeToStream(writer, w, h, comp, data, quality);
